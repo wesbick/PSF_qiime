@@ -1,0 +1,220 @@
+#QIIME single end
+
+#working within the shared folder, which is essentially the desktop in qiime virtual box:
+source activate qiime2-2019.4
+
+qiime tools import \
+  --type 'SampleData[PairedEndSequencesWithQuality]' \
+  --input-path Compressed \
+  --input-format CasavaOneEightSingleLanePerSampleDirFmt \
+  --output-path demux-paired-end.qza
+
+qiime demux summarize \
+ --i-data demux-paired-end.qza \
+ --o-visualization demux-paired-end.qzv
+
+
+##need to remove out the Reverse reads
+qiime tools import \
+  --type 'SampleData[SequencesWithQuality]' \
+  --input-path CompressedR1 \
+  --input-format CasavaOneEightSingleLanePerSampleDirFmt \
+  --output-path demux-single-end.qza
+  
+qiime demux summarize \
+ --i-data demux-single-end.qza \
+ --o-visualization demux-single-end.qzv
+
+  
+  #these are paramaters you may want to adjust, and there is some debate around it. dada2 creates ASV. 
+  
+  qiime dada2 denoise-single \
+  --i-demultiplexed-seqs demux-single-end.qza \
+  --p-trim-left 13 \
+  --p-trunc-len 245 \
+  --o-representative-sequences rep-seqs-dada2.qza \
+  --o-table table-dada2.qza \
+  --o-denoising-stats stats-dada2.qza
+    
+  qiime metadata tabulate \
+  --m-input-file stats-dada2.qza \
+  --o-visualization stats-dada2.qzv
+  
+  #visualize the seqs and the metadata to compute the number of seqs/sample, the minimum is a 998 seqs
+  qiime feature-table summarize \
+  --i-table table-dada2.qza  \
+  --o-visualization table.qzv 
+	
+qiime feature-table tabulate-seqs \
+  --i-data rep-seqs-dada2.qza \
+  --o-visualization rep-seqs-dada2.qzv
+  
+# cluster OTUS using de novo clustering
+# cluster at 97%
+
+qiime vsearch cluster-features-de-novo \
+  --i-table table-dada2.qza \
+  --i-sequences rep-seqs-dada2.qza  \
+  --p-perc-identity 0.97 \
+  --o-clustered-table table-dn-97.qza \
+  --o-clustered-sequences rep-seqs-dada2-dn-97.qza
+  
+qiime feature-table tabulate-seqs \
+  --i-data rep-seqs-dada2-dn-97.qza \
+  --o-visualization rep-seqs-dada2-dn-97.qzv
+
+#visualize the seqs and the metadata to compute the number of seqs/sample, the minimum is a 998 seqs
+qiime feature-table summarize \
+  --i-table table-dn-97.qza  \
+  --o-visualization table-dn-97.qzv 
+
+
+###### this requires a trained UNITE dataset to assign OTU names to sequences (Absolute sequence variants). 
+
+Code to train the UNITE dataset, version 02.02.2019
+
+############# train the UNITE Dataset
+
+#Download qiime formatted unite databases from unite website
+
+ ##due to lowercase sequences in the UNITE database 
+ #run this command in the terminal to amend thee database 
+
+awk '/^>/ {print($0)}; /^[^>]/ {print(toupper($0))}' sh_refs_qiime_ver8_dynamic_02.02.2019.fasta > sh_refs_qiime_ver8_dynamic_02.02.2019.uppercase.fasta
+
+qiime tools import \
+ --type FeatureData[Sequence] \
+ --input-path sh_refs_qiime_ver8_dynamic_02.02.2019.uppercase.fasta \
+ --output-path UNITE.DYNAMIC.fasta.qza
+ 
+qiime tools import \
+ --type FeatureData[Taxonomy] \
+ --input-path sh_taxonomy_qiime_ver8_dynamic_02.02.2019.txt \
+ --output-path UNITE.dynamic.names.qza \
+ --input-format HeaderlessTSVTaxonomyFormat
+ 
+qiime feature-classifier fit-classifier-naive-bayes \
+ --i-reference-reads UNITE.DYNAMIC.fasta.qza \
+ --i-reference-taxonomy UNITE.dynamic.names.qza  \
+ --p-classify--chunk-size 10000 \
+ --o-classifier unite-ver8.dynamic.classifier-02.02.2019.qza
+  
+###Proceed after UNITE dataset is trained
+
+# the following classifies ASVs
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier unite-ver8.dynamic.classifier-02.02.2019.qza \
+  --i-reads rep-seqs-dada2.qza  \
+  --p-reads-per-batch 1000 \
+  --o-classification taxonomy.qza  
+qiime metadata tabulate \
+  --m-input-file taxonomy.qza \
+  --o-visualization taxonomy.qzv
+qiime taxa barplot \
+  --i-table table-dada2.qza \
+  --i-taxonomy taxonomy.qza \
+  --m-metadata-file metadata-psf.tsv \
+  --o-visualization taxa-bar-plots.qzv
+  
+# the following classifies OTUs
+
+qiime feature-classifier classify-sklearn \
+  --i-classifier unite-ver8.dynamic.classifier-02.02.2019.qza \
+  --i-reads rep-seqs-dada2-dn-98.qza  \
+  --p-reads-per-batch 1000 \
+  --o-classification taxonomyOTU.qza  
+qiime metadata tabulate \
+  --m-input-file taxonomyOTU.qza \
+  --o-visualization taxonomyOTU.qzv
+qiime taxa barplot \
+  --i-table table-dn-98.qza \
+  --i-taxonomy taxonomyOTU.qza \
+  --m-metadata-file metadata-psf.tsv \
+  --o-visualization taxa-bar-plotsOTU.qzv
+  
+########
+##need to know minimum number of sequences/sample, I have: ~ 993 is the loest number of seqs,
+
+qiime feature-table rarefy \
+  --i-table table-dada2.qza \
+  --p-sampling-depth 993 \
+  --o-rarefied-table rarefied-table.993.qza
+
+#this combines dada 2 output and the taxonomy output.... and the above rarefied feature table, collapse this also by the genus level i.e. p-level 6
+qiime taxa collapse \
+  --i-table rarefied-table.993.qza \
+  --i-taxonomy taxonomy.qza \
+  --p-level 6 \
+  --o-collapsed-table dada2-collapsed_rarefied.993.genus.qza
+  
+qiime feature-table summarize \
+  --i-table dada2-collapsed_rarefied.993.qza \
+  --o-visualization dada2-collapsed_rarefied.993.qzv   
+
+# Filter features that only appear in a single sample, and have 5 observations, I am missing sample 9-2S
+qiime feature-table filter-features \
+--i-table dada2-collapsed_rarefied.14519.genus.qza \
+--p-min-samples 2 \
+--p-min-frequency 5 \
+--o-filtered-table new.new.filtered.table.genus.qza
+
+####
+##this provides the rarefaction curves, they make sense.... 
+qiime diversity alpha-rarefaction \
+  --i-table table-dada2.qza \
+  --p-max-depth 993 \
+  --m-metadata-file metadata-psf.tsv \
+  --o-visualization alpha-rarefaction.qzv
+
+qiime diversity core-metrics \
+  --i-table table-dada2.qza \
+  --p-sampling-depth 993 \
+  --m-metadata-file metadata-psf.tsv \
+  --output-dir core-metrics-results \
+  --verbose
+
+qiime diversity alpha \
+  --i-table table-dada2.qza \
+  --p-metric observed_otus \
+  --o-alpha-diversity observed_otus_vector.qza
+
+qiime diversity alpha \
+  --i-table table-dada2.qza \
+  --p-metric chao1 \
+  --o-alpha-diversity chao1_vector.qza
+
+# beta diversity stats (NON-PHYLOGENETIC)
+qiime diversity beta-group-significance \
+  --i-distance-matrix core-metrics-results/bray_curtis_distance_matrix.qza \
+  --m-metadata-file metadata-psf.tsv \
+  --m-metadata-column INHBTR \
+  --o-visualization core-metrics-results/bray_curtis_inhibtr_significance.qzv \
+  --p-pairwise
+
+# convert table-dada2.biom to shared format for mothur
+
+count.groups(shared=asvrun1.3.shared)
+#
+# Subsample dataset to the sample with the smallest amount of sequences (1000 sequences)
+sub.sample(shared=asvrun1.3.shared, size=993)
+#
+# Generate rarefaction curves of the full dataset (not sub-sampled) describing the number of OTUs observed as a function of sampling effort
+rarefaction.single(shared=asvrun1.3.shared, calc=sobs, freq=100) 
+#
+# Generate sub-sampled table containing number of sequences, sample coverage, number of observed OTUs, Chao1 richness, and Shannon diversity
+summary.single(shared=asvrun1.3.shared, calc=nseqs-coverage-sobs-npshannon-invsimpson-chao, subsample=993)
+
+# with otus
+
+count.groups(shared=otu98_full.shared)
+#
+# Subsample dataset to the sample with the smallest amount of sequences (1000 sequences)
+sub.sample(shared=otu98_full.shared, size=859)
+#
+# Generate rarefaction curves of the full dataset (not sub-sampled) describing the number of OTUs observed as a function of sampling effort
+rarefaction.single(shared=otu98_full.shared, calc=sobs, freq=100) 
+#
+# Generate sub-sampled table containing number of sequences, sample coverage, number of observed OTUs, Chao1 richness, and Shannon diversity
+summary.single(shared=otu98_full.shared, calc=nseqs-coverage-sobs-npshannon-invsimpson-chao, subsample=859)
+
