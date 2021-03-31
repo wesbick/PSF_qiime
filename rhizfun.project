@@ -1,12 +1,12 @@
 USERNAME	wbickford
 Last	Bickford
 First	Wesley
-EMAIL	bickford@umich.edu
+EMAIL	wbickford@usgs.gov
 CENTER USGS
 TYPE institute
-WEBSITE www.yourWebsite.org
+WEBSITE none
 ProjectName Phrag Rhizosphere Microbiome
 ProjectTitle Rhizosphere microbiome of Phragmites australis in Michigan and Ohio, USA
 Description Here we describe the microbiome found in the rhizosphere of native and non-native Phragmites australis in Michigan and Ohio, USA. We use amplicon sequencing to identify bacterial, fungal, and oomycete communities in the rhizosphere. 
-Grant id=yourGrantID, agency=yourGrantAgency, title=yourGrantTitle
+Grant id=NONE, agency=Great Lakes Restoration Initiative, title=NONE
 
